@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include requirements.txt
+include config/config.env.template
+recursive-include docs *.md
+recursive-include scripts *.py
+

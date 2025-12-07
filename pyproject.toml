@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neo4j-graphbot"
+version = "1.0.0"
+description = "A CLI interface for interacting with Neo4j using natural language via Gemini API"
+readme = "docs/README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Neo4j GraphBot Team"}
+]
+keywords = ["neo4j", "graph-database", "nlp", "gemini", "cli", "cypher"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "neo4j>=5.15.0",
+    "google-generativeai>=0.3.2",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+graphbot = "graphbot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/neo4j-graphbot"
+Documentation = "https://github.com/yourusername/neo4j-graphbot/blob/main/docs/README.md"
+Repository = "https://github.com/yourusername/neo4j-graphbot"
+Issues = "https://github.com/yourusername/neo4j-graphbot/issues"
+
+[tool.setuptools]
+packages = ["graphbot", "graphbot.core", "graphbot.handlers", "graphbot.services", "graphbot.utils"]
+
+[tool.setuptools.package-data]
+graphbot = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+

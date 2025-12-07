@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  graphbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: neo4j-graphbot
+    image: neo4j-graphbot:latest
+    
+    # Mount config file from host - user edits this single file
+    volumes:
+      - ./config/config.env:/app/config/config.env:ro
+    
+    # Use host network mode to easily connect to Neo4j on host
+    network_mode: host
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Python
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CONFIG_FILE=/app/config/config.env
+      - PYTHONPATH=/app/src
+

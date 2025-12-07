@@ -1,0 +1,68 @@
+graph TD
+    %% Styling
+    classDef cli fill:#f9f,stroke:#333,stroke-width:2px,color:black;
+    classDef core fill:#bbf,stroke:#333,stroke-width:2px,color:black;
+    classDef service fill:#bfb,stroke:#333,stroke-width:2px,color:black;
+    classDef db fill:#fdb,stroke:#333,stroke-width:2px,color:black;
+    classDef agent fill:#ff9,stroke:#333,stroke-width:4px,color:black;
+
+    subgraph Client_Layer ["🖥️ Client Layer (CLI)"]
+        CLI[("GraphBot CLI<br/>(graphbot.py)")]:::cli
+        CLI_UI["Rich UI<br/>(Progress Bars, Tables)"]:::cli
+    end
+
+    subgraph Core_Logic ["⚙️ Core Logic"]
+        SchemaContext["SchemaContext<br/>(Manages Schema & Insights)"]:::core
+        QueryBuilder["QueryBuilder<br/>(Validation & Sanitization)"]:::core
+        Neo4jHandler["Neo4jHandler<br/>(Driver Management)"]:::core
+    end
+
+    subgraph Service_Layer ["🧠 AI Service Layer"]
+        GeminiService["GeminiService<br/>(Model Manager)"]:::service
+        
+        subgraph Agents ["🤖 AI Agents"]
+            InsightAgent(("Insight Agent<br/>(Worker Model)")):::agent
+            MainBrain(("Main Brain<br/>(Interactive Model)")):::agent
+        end
+    end
+
+    subgraph External_Systems ["🌐 External Systems"]
+        Neo4jDB[("Neo4j Database")]:::db
+        GeminiAPI_Flash["Gemini API<br/>(1.5 Flash - Fast)"]:::service
+        GeminiAPI_Pro["Gemini API<br/>(3.0 Pro - Smart)"]:::service
+    end
+
+    %% Connections
+    CLI --> CLI_UI
+    CLI -- "1. Connect" --> Neo4jHandler
+    CLI -- "2. User Query" --> GeminiService
+    
+    Neo4jHandler -- "Cypher" --> Neo4jDB
+    Neo4jDB -- "Result Records" --> Neo4jHandler
+    
+    %% Insight Flow (Auto-Mapping)
+    CLI -- "3. Trigger Auto-Map" --> InsightAgent
+    InsightAgent -- "Extract Raw Stats" --> Neo4jHandler
+    InsightAgent -- "Generate Summary" --> GeminiAPI_Flash
+    InsightAgent -- "Inject Insights" --> SchemaContext
+    
+    %% Query Flow
+    GeminiService -- "Select Model" --> MainBrain
+    MainBrain -- "Get Context" --> SchemaContext
+    MainBrain -- "Generate Query" --> GeminiAPI_Pro
+    MainBrain -- "Explain Results" --> GeminiAPI_Pro
+    
+    GeminiAPI_Pro -- "Cypher Query" --> CLI
+    CLI -- "Execute" --> Neo4jHandler
+    Neo4jHandler -- "Results" --> CLI
+
+    %% Agent Details
+    subgraph Agent_Specs ["📊 Agent Specifications"]
+        direction LR
+        Insight_Spec["<b>Insight Agent</b><br/>Role: Analyst<br/>Model: Gemini 1.5 Flash<br/>Metric: Speed (<2s)<br/>Task: Schema Mapping, Summary"]
+        Main_Spec["<b>Main Brain</b><br/>Role: Developer<br/>Model: Gemini 3.0 Pro<br/>Metric: Accuracy (High IQ)<br/>Task: Query Gen, Explanation"]
+    end
+    
+    InsightAgent -.-> Insight_Spec
+    MainBrain -.-> Main_Spec
+
