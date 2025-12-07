@@ -29,6 +29,9 @@ def stub_genai(monkeypatch):
             self.last_prompt = prompt
             return self._next_response
 
+        async def generate_content_async(self, prompt: str):
+            return self.generate_content(prompt)
+
     def fake_list_models():
         return [
             FakeModelInfo("gemini-3-pro-preview"),

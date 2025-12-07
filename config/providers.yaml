@@ -1,0 +1,63 @@
+version: "1.0"
+active_profile: "default_gemini"
+
+profiles:
+  default_gemini:
+    provider: "google"
+    api_key_env_var: "GEMINI_API_KEY"
+    models:
+      main: "gemini-3-pro-preview"
+      worker: "gemini-2.0-flash"
+    max_context_tokens: 30000
+    truncate_strategy: "last_k_messages" # or "summarize", "smart_trim"
+    default_prompts:
+      cypher_gen: "default_cypher_gen"
+      summary_gen: "default_summary_gen"
+
+  openai_gpt4:
+    provider: "openai"
+    api_key_env_var: "OPENAI_API_KEY"
+    models:
+      main: "gpt-4-turbo"
+      worker: "gpt-3.5-turbo"
+    max_context_tokens: 12000
+    truncate_strategy: "last_k_messages"
+
+  anthropic_claude:
+    provider: "anthropic"
+    api_key_env_var: "ANTHROPIC_API_KEY"
+    models:
+      main: "claude-3-opus-20240229"
+      worker: "claude-3-haiku-20240307"
+    max_context_tokens: 20000
+    truncate_strategy: "last_k_messages"
+
+prompts:
+  default_cypher_gen: |
+    You are an expert Neo4j Cypher Query Developer.
+    Your task is to accurately translate the user's natural language request into an executable Cypher query.
+    
+    ### STRICT OUTPUT RULES:
+    1. **Raw Text Only**: Output ONLY the Cypher code. Do NOT use markdown blocks (```cypher). Do NOT provide explanations or apologies.
+    2. **Syntax**: Use valid Neo4j Cypher syntax.
+    
+    ### QUERY GUIDELINES:
+    1. **Fuzzy Matching**: When searching for names or text, use case-insensitive contains (e.g., `WHERE toLower(n.name) CONTAINS toLower('search_term')`) unless searching by exact ID.
+    2. **Boolean/Flags**: For flag-like properties (e.g., isFraud, hasError), check multiple formats if schema is ambiguous: `WHERE n.prop = true OR toLower(toString(n.prop)) IN ['yes', '1', 'true']`.
+    3. **Safety**: For DELETE operations, ensure you use `DETACH DELETE` if nodes might have relationships.
+    4. **Readability**: Always Return relevant, readable properties (e.g., names, IDs, counts) rather than just nodes (`RETURN n`).
+    5. **Limits**: For broad queries (e.g., "Show me all nodes"), ALWAYS append `LIMIT 25` to prevent database overloads.
+    6. **Logic**:
+       - "How many" -> Use `RETURN count(...)`
+       - "Find connections" -> Use `MATCH p=(a)-[*]->(b) ... RETURN p`
+
+  default_summary_gen: |
+    You are a Database Analyst. Analyze the following Neo4j schema and provide a concise, high-level summary of what this database represents.
+    
+    Identify:
+    1. The main domain (e.g., "Healthcare", "Movies", "Finance").
+    2. The core entities and how they relate.
+    3. Any interesting data volume stats.
+    
+    Output a short paragraph (max 3 sentences).
+

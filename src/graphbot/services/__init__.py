@@ -1,7 +1,29 @@
 """External service integrations for GraphBot."""
 
-from .gemini_service import GeminiService
 from .insight_agent import InsightAgent
+from .unified_llm_service import UnifiedLLMService
+from .llm import (
+    LLMError,
+    LLMRateLimitError,
+    LLMAuthenticationError,
+    LLMModelNotFoundError,
+    LLMTimeoutError,
+    LLMServerError,
+)
 
-__all__ = ["GeminiService", "InsightAgent"]
+# GeminiService is deprecated - use UnifiedLLMService instead
+# Keeping import for backward compatibility
+from .gemini_service import GeminiService
+
+__all__ = [
+    "UnifiedLLMService", 
+    "InsightAgent", 
+    "GeminiService",
+    "LLMError",
+    "LLMRateLimitError",
+    "LLMAuthenticationError",
+    "LLMModelNotFoundError",
+    "LLMTimeoutError",
+    "LLMServerError",
+]
 

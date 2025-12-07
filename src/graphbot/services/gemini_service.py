@@ -1,6 +1,6 @@
 """Gemini API service for natural language to Cypher query conversion."""
 import os
-import time
+import re
 import asyncio
 import hashlib
 from typing import Optional, Dict
@@ -38,12 +38,10 @@ class GeminiService:
         # Note: Newer experimental models may have stricter quota limits
         self.model_names = [
             'gemini-3-pro-preview',      # Latest high-intelligence model
-            'gemini-1.5-pro',            # Stable pro model (good for free tier)
-            'gemini-1.5-flash',          # Stable flash model (best for free tier)
-            'gemini-pro',                 # Legacy (usually available)
-            'gemini-1.5-flash-latest',   # Latest stable flash (may have limits)
-            'gemini-1.5-pro-latest',     # Latest stable pro (may have limits)
-            'gemini-2.0-flash-exp',      # Experimental (often has quota limits)
+            'gemini-2.0-flash',          # Latest stable flash
+            'gemini-2.0-flash-exp',      # Experimental flash
+            'gemini-2.0-pro-exp',        # Experimental pro
+            'gemini-2.0-flash-lite-preview-02-05', # Lite preview
         ]
         
         self.main_model = None
@@ -108,14 +106,14 @@ class GeminiService:
 
     def _init_worker_model(self, fallback=False):
         """Initialize the worker 'insight' model."""
-        target_model = os.getenv("WORKER_MODEL", "gemini-1.5-flash")
+        target_model = os.getenv("WORKER_MODEL", "gemini-2.0-flash")
         
         # Try target model first
         if self._set_model(target_model, is_main=False, fallback=fallback):
             return
 
         # Fallback to flash/fast models
-        fast_models = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro']
+        fast_models = ['gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash-lite-preview-02-05']
         for model_name in fast_models:
             if self._set_model(model_name, is_main=False, fallback=fallback):
                 return
@@ -143,7 +141,7 @@ class GeminiService:
                 self.worker_model_name = model_name
                 console.print(f"[bold bright_green]⚡ Worker Agent initialized: [bold bright_blue]{model_name}[/bold bright_blue][/bold bright_green]")
             return True
-        except:
+        except Exception:
             return False
 
     def set_main_model(self, model_name: str) -> bool:
@@ -155,6 +153,22 @@ class GeminiService:
         return self.worker_model
 
     
+    def _extract_text_from_parts(self, parts) -> str:
+        """Extract text from a list of response parts."""
+        if not parts:
+            return ""
+        text_parts = []
+        for part in parts:
+            if hasattr(part, 'text'):
+                text_parts.append(str(part.text))
+            elif isinstance(part, str):
+                text_parts.append(part)
+            elif hasattr(part, 'get'):
+                text = part.get('text', '')
+                if text:
+                    text_parts.append(str(text))
+        return ''.join(text_parts)
+
     def _extract_text(self, response) -> str:
         """
         Safely extract text from Gemini API response.
@@ -165,78 +179,35 @@ class GeminiService:
         Returns:
             Extracted text string
         """
-        # Method 0: Check if response has a result attribute
-        if hasattr(response, 'result'):
-            try:
-                result = response.result
-                if hasattr(result, 'parts'):
-                    parts = result.parts
-                    if parts:
-                        text_parts = []
-                        for part in parts:
-                            if hasattr(part, 'text'):
-                                text_parts.append(str(part.text))
-                            elif isinstance(part, str):
-                                text_parts.append(part)
-                        if text_parts:
-                            return ''.join(text_parts)
-            except Exception:
-                pass
-        
-        # Method 1: Use response.parts (as suggested by error message)
-        if hasattr(response, 'parts'):
-            try:
-                parts = response.parts
-                if parts:
-                    text_parts = []
-                    for part in parts:
-                        # Check if part has text attribute
-                        if hasattr(part, 'text'):
-                            text_parts.append(str(part.text))
-                        # Check if part is directly a string
-                        elif isinstance(part, str):
-                            text_parts.append(part)
-                        # Check if part has a get method
-                        elif hasattr(part, 'get'):
-                            text = part.get('text', '')
-                            if text:
-                                text_parts.append(str(text))
-                    if text_parts:
-                        return ''.join(text_parts)
-            except Exception as e:
-                pass
-        
-        # Method 2: Use response.candidates[0].content.parts (full lookup)
-        if hasattr(response, 'candidates') and response.candidates:
-            try:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content'):
-                    content = candidate.content
-                    if hasattr(content, 'parts'):
-                        parts = content.parts
-                        if parts:
-                            text_parts = []
-                            for part in parts:
-                                if hasattr(part, 'text'):
-                                    text_parts.append(str(part.text))
-                                elif isinstance(part, str):
-                                    text_parts.append(part)
-                                elif hasattr(part, 'get'):
-                                    text = part.get('text', '')
-                                    if text:
-                                        text_parts.append(str(text))
-                            if text_parts:
-                                return ''.join(text_parts)
-            except Exception as e:
-                pass
-        
-        # Method 3: Try response.text (might work for simple responses)
+        # Try response.text first (simplest and most common)
         try:
             return str(response.text)
         except (ValueError, AttributeError):
             pass
         
-        # If all methods fail, raise an error with debug info
+        # Try response.result.parts
+        if hasattr(response, 'result') and hasattr(response.result, 'parts'):
+            text = self._extract_text_from_parts(response.result.parts)
+            if text:
+                return text
+        
+        # Try response.parts directly
+        if hasattr(response, 'parts'):
+            text = self._extract_text_from_parts(response.parts)
+            if text:
+                return text
+        
+        # Try response.candidates[0].content.parts (full path)
+        if hasattr(response, 'candidates') and response.candidates:
+            try:
+                parts = response.candidates[0].content.parts
+                text = self._extract_text_from_parts(parts)
+                if text:
+                    return text
+            except (AttributeError, IndexError):
+                pass
+        
+        # Build debug info for error message
         error_info = []
         if hasattr(response, 'candidates'):
             error_info.append(f"candidates={len(response.candidates) if response.candidates else 0}")
@@ -276,10 +247,11 @@ Your task is to accurately translate the user's natural language request into an
 
 ### QUERY GUIDELINES:
 1. **Fuzzy Matching**: When searching for names or text, use case-insensitive contains (e.g., `WHERE toLower(n.name) CONTAINS toLower('search_term')`) unless searching by exact ID.
-2. **Safety**: For DELETE operations, ensure you use `DETACH DELETE` if nodes might have relationships.
-3. **Readability**: Always Return relevant, readable properties (e.g., names, IDs, counts) rather than just nodes (`RETURN n`).
-4. **Limits**: For broad queries (e.g., "Show me all nodes"), ALWAYS append `LIMIT 25` to prevent database overloads.
-5. **Logic**:
+2. **Boolean/Flags**: For flag-like properties (e.g., isFraud, hasError), check multiple formats if schema is ambiguous: `WHERE n.prop = true OR toLower(toString(n.prop)) IN ['yes', '1', 'true']`.
+3. **Safety**: For DELETE operations, ensure you use `DETACH DELETE` if nodes might have relationships.
+4. **Readability**: Always Return relevant, readable properties (e.g., names, IDs, counts) rather than just nodes (`RETURN n`).
+5. **Limits**: For broad queries (e.g., "Show me all nodes"), ALWAYS append `LIMIT 25` to prevent database overloads.
+6. **Logic**:
    - "How many" -> Use `RETURN count(...)`
    - "Find connections" -> Use `MATCH p=(a)-[*]->(b) ... RETURN p`
 
@@ -295,33 +267,13 @@ Your task is to accurately translate the user's natural language request into an
         
         for attempt in range(max_retries):
             try:
-                # Use async generation
                 response = await self.main_model.generate_content_async(prompt)
-                
-                # Debug: Print response structure if extraction fails
-                try:
-                    query = self._extract_text(response).strip()
-                except Exception as extract_error:
-                    # Try to debug the response structure
-                    console.print(f"[yellow]Debug: Response type: {type(response)}[/yellow]")
-                    console.print(f"[yellow]Debug: Response attributes: {dir(response)}[/yellow]")
-                    if hasattr(response, 'candidates'):
-                        console.print(f"[yellow]Debug: Has candidates: {len(response.candidates) if response.candidates else 0}[/yellow]")
-                    if hasattr(response, 'parts'):
-                        console.print(f"[yellow]Debug: Has parts: {len(response.parts) if response.parts else 0}[/yellow]")
-                    raise extract_error
-                
-                # Remove markdown code blocks if present
-                if query.startswith("```"):
-                    lines = query.split("\n")
-                    query = "\n".join(lines[1:-1]) if len(lines) > 2 else query
-                    query = query.replace("```cypher", "").replace("```", "").strip()
+                query = self._clean_query_response(self._extract_text(response).strip())
                 
                 console.print(f"[bold bright_blue]🔍 Generated query:[/bold bright_blue] [dim]{query}[/dim]")
                 
-                # Update Cache
+                # Update Cache (LRU eviction)
                 if len(self._query_cache) >= self._cache_size:
-                    # Remove oldest item (Python dicts are ordered by insertion)
                     self._query_cache.pop(next(iter(self._query_cache)))
                 self._query_cache[cache_key] = query
                 
@@ -329,73 +281,46 @@ Your task is to accurately translate the user's natural language request into an
                 
             except Exception as e:
                 error_str = str(e)
+                is_last_attempt = attempt == max_retries - 1
                 
-                # Check for API key errors (400)
-                if "400" in error_str and ("API Key" in error_str or "API_KEY_INVALID" in error_str or "api key" in error_str.lower()):
-                    console.print(f"[bold bright_red]❌ Invalid API Key[/bold bright_red]")
-                    console.print(f"[bright_red]   Error: API Key not found or invalid[/bright_red]")
-                    console.print(f"[bold bright_yellow]💡 Tips:[/bold bright_yellow]")
-                    console.print(f"[bright_yellow]   1. Check your .env file has GEMINI_API_KEY set correctly[/bright_yellow]")
-                    console.print(f"[bright_yellow]   2. Verify your API key at https://makersuite.google.com/app/apikey[/bright_yellow]")
-                    console.print(f"[bright_yellow]   3. Make sure the API key is active and has proper permissions[/bright_yellow]")
+                # API Key errors - fail immediately
+                if self._is_api_key_error(error_str):
+                    console.print("[bold bright_red]❌ Invalid API Key[/bold bright_red]")
+                    console.print("[bright_red]   Error: API Key not found or invalid[/bright_red]")
+                    console.print("[bold bright_yellow]💡 Tips:[/bold bright_yellow]")
+                    console.print("[bright_yellow]   1. Check your .env file has GEMINI_API_KEY set correctly[/bright_yellow]")
+                    console.print("[bright_yellow]   2. Verify your API key at https://makersuite.google.com/app/apikey[/bright_yellow]")
                     raise Exception("Invalid API Key. Please check your GEMINI_API_KEY in the .env file.")
                 
-                # Check for model not found errors (404)
-                if "404" in error_str or "not found" in error_str.lower():
-                    # Try to switch to a different model
-                    if attempt < max_retries - 1:
-                        if self._try_fallback_model():
-                            console.print(f"[bold bright_blue]🔄 Model not found, switched to: {self.main_model_name}[/bold bright_blue]")
-                            continue
-                        else:
-                            console.print(f"[bold bright_red]❌ Model {self.main_model_name} not found and no fallback available[/bold bright_red]")
-                            console.print(f"[bright_red]   Error: {error_str[:200]}[/bright_red]")
-                            raise Exception(f"Model not found: {error_str[:200]}")
-                    else:
-                        console.print(f"[bold bright_red]❌ Model {self.main_model_name} not found after retries[/bold bright_red]")
-                        raise Exception(f"Model not found: {error_str[:200]}")
+                # Model not found - try fallback
+                if self._is_model_not_found_error(error_str):
+                    if not is_last_attempt and self._try_fallback_model():
+                        console.print(f"[bold bright_blue]🔄 Model not found, switched to: {self.main_model_name}[/bold bright_blue]")
+                        continue
+                    console.print(f"[bold bright_red]❌ Model {self.main_model_name} not found[/bold bright_red]")
+                    raise Exception(f"Model not found: {error_str[:200]}")
                 
-                # Check for quota/rate limit errors (429)
-                if "429" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower():
-                    # Try to extract retry time
-                    retry_time = None
-                    if "retry in" in error_str.lower():
-                        try:
-                            import re
-                            match = re.search(r'retry in ([\d.]+)s', error_str.lower())
-                            if match:
-                                retry_time = float(match.group(1))
-                        except:
-                            pass
-                    
-                    # If this is not the last attempt, try a different model
-                    if attempt < max_retries - 1:
-                        # Try to switch to a different model
+                # Rate limit - try fallback or wait
+                if self._is_rate_limit_error(error_str):
+                    if not is_last_attempt:
                         if self._try_fallback_model():
                             console.print(f"[bold bright_blue]🔄 Switched to model: {self.main_model_name}[/bold bright_blue]")
                             continue
-                        
-                        # If no fallback model, wait and retry
-                        wait_time = retry_time if retry_time else retry_delay * (attempt + 1)
-                        console.print(f"[bold bright_yellow]⏳ Quota exceeded. Waiting {wait_time:.1f}s before retry...[/bold bright_yellow]")
+                        wait_time = self._extract_retry_time(error_str) or retry_delay * (attempt + 1)
+                        console.print(f"[bold bright_yellow]⏳ Quota exceeded. Waiting {wait_time:.1f}s...[/bold bright_yellow]")
                         await asyncio.sleep(wait_time)
                         continue
-                    else:
-                        # Last attempt failed
-                        console.print(f"[bold bright_red]❌ Quota exceeded for model {self.main_model_name}[/bold bright_red]")
-                        console.print(f"[bright_red]   Error: {error_str[:200]}[/bright_red]")
-                        console.print(f"[bold bright_yellow]💡 Tip: Check your API quota at https://ai.dev/usage?tab=rate-limit[/bold bright_yellow]")
-                        raise Exception(f"Quota exceeded. Please check your API plan and billing details.")
+                    console.print(f"[bold bright_red]❌ Quota exceeded for model {self.main_model_name}[/bold bright_red]")
+                    console.print("[bold bright_yellow]💡 Tip: Check your API quota at https://ai.dev/usage?tab=rate-limit[/bold bright_yellow]")
+                    raise Exception("Quota exceeded. Please check your API plan and billing details.")
                 
-                # For other errors, raise immediately
-                if attempt == max_retries - 1:
+                # Other errors - retry with exponential backoff
+                if is_last_attempt:
                     console.print(f"[bold bright_red]❌ Error generating query: {error_str[:200]}[/bold bright_red]")
                     raise
-                else:
-                    # Retry for other errors with exponential backoff
-                    wait_time = retry_delay * (2 ** attempt)
-                    console.print(f"[bold bright_yellow]⚠️  Error occurred. Retrying in {wait_time}s...[/bold bright_yellow]")
-                    await asyncio.sleep(wait_time)
+                wait_time = retry_delay * (2 ** attempt)
+                console.print(f"[bold bright_yellow]⚠️  Error occurred. Retrying in {wait_time}s...[/bold bright_yellow]")
+                await asyncio.sleep(wait_time)
         
         raise Exception("Failed to generate query after multiple attempts")
     
@@ -410,13 +335,47 @@ Your task is to accurately translate the user's natural language request into an
         for i, model_name in enumerate(self.model_names):
             if i > current_index and model_name in self.available_models:
                 try:
-                    # Use the full model name if stored, otherwise use short name
                     self.set_main_model(model_name)
                     return True
-                except:
+                except Exception:
                     continue
         
         return False
+
+    def _is_api_key_error(self, error_str: str) -> bool:
+        """Check if error is related to invalid API key."""
+        return "400" in error_str and (
+            "API Key" in error_str or 
+            "API_KEY_INVALID" in error_str or 
+            "api key" in error_str.lower()
+        )
+
+    def _is_model_not_found_error(self, error_str: str) -> bool:
+        """Check if error is related to model not found."""
+        return "404" in error_str or "not found" in error_str.lower()
+
+    def _is_rate_limit_error(self, error_str: str) -> bool:
+        """Check if error is related to rate limiting."""
+        return "429" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower()
+
+    def _extract_retry_time(self, error_str: str) -> Optional[float]:
+        """Extract retry time from rate limit error message."""
+        if "retry in" in error_str.lower():
+            match = re.search(r'retry in ([\d.]+)s', error_str.lower())
+            if match:
+                try:
+                    return float(match.group(1))
+                except ValueError:
+                    pass
+        return None
+
+    def _clean_query_response(self, query: str) -> str:
+        """Remove markdown code blocks from query response."""
+        if query.startswith("```"):
+            lines = query.split("\n")
+            query = "\n".join(lines[1:-1]) if len(lines) > 2 else query
+            query = query.replace("```cypher", "").replace("```", "").strip()
+        return query
     
     def explain_result(self, query: str, results: list, user_input: str) -> str:
         """Synchronous wrapper for backward compatibility."""
