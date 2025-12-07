@@ -19,6 +19,7 @@ graph TD
 
     subgraph Service_Layer ["🧠 AI Service Layer"]
         GeminiService["GeminiService<br/>(Model Manager)"]:::service
+        SchemaInspector["SchemaInspector<br/>(Value Sampling)"]:::service
         
         subgraph Agents ["🤖 AI Agents"]
             InsightAgent(("Insight Agent<br/>(Worker Model)")):::agent
@@ -28,7 +29,7 @@ graph TD
 
     subgraph External_Systems ["🌐 External Systems"]
         Neo4jDB[("Neo4j Database")]:::db
-        GeminiAPI_Flash["Gemini API<br/>(1.5 Flash - Fast)"]:::service
+        GeminiAPI_Flash["Gemini API<br/>(2.0 Flash - Fast)"]:::service
         GeminiAPI_Pro["Gemini API<br/>(3.0 Pro - Smart)"]:::service
     end
 
@@ -36,6 +37,7 @@ graph TD
     CLI --> CLI_UI
     CLI -- "1. Connect" --> Neo4jHandler
     CLI -- "2. User Query" --> GeminiService
+    CLI -- "inspect" --> SchemaInspector
     
     Neo4jHandler -- "Cypher" --> Neo4jDB
     Neo4jDB -- "Result Records" --> Neo4jHandler
@@ -56,13 +58,15 @@ graph TD
     CLI -- "Execute" --> Neo4jHandler
     Neo4jHandler -- "Results" --> CLI
 
+    %% Inspection Flow
+    SchemaInspector -- "Sample Values" --> Neo4jHandler
+
     %% Agent Details
     subgraph Agent_Specs ["📊 Agent Specifications"]
         direction LR
-        Insight_Spec["<b>Insight Agent</b><br/>Role: Analyst<br/>Model: Gemini 1.5 Flash<br/>Metric: Speed (<2s)<br/>Task: Schema Mapping, Summary"]
-        Main_Spec["<b>Main Brain</b><br/>Role: Developer<br/>Model: Gemini 3.0 Pro Preview<br/>Metric: Accuracy (High IQ)<br/>Task: Query Gen, Explanation"]
+        Insight_Spec["<b>Insight Agent</b><br/>Role: Analyst<br/>Model: Gemini 2.0 Flash<br/>Metric: Speed (<2s)<br/>Task: Schema Mapping, Summary"]
+        Main_Spec["<b>Main Brain</b><br/>Role: Developer<br/>Model: Gemini 3.0 Pro<br/>Metric: Accuracy (High IQ)<br/>Task: Query Gen, Explanation"]
     end
     
     InsightAgent -.-> Insight_Spec
     MainBrain -.-> Main_Spec
-

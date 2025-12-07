@@ -1,7 +1,15 @@
 """Neo4j database connection and query execution handler."""
 import os
-from typing import Optional, Dict, Any, List
-from neo4j import GraphDatabase, Driver, Session
+import asyncio
+from typing import Any, Optional
+from neo4j import AsyncGraphDatabase, AsyncDriver
+from neo4j.exceptions import (
+    ServiceUnavailable,
+    AuthError,
+    ClientError,
+    TransientError,
+    DatabaseError,
+)
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
@@ -14,12 +22,25 @@ if os.path.exists(config_file):
 
 console = Console()
 
+# Custom exceptions
+class Neo4jConnectionError(Exception):
+    """Raised when connection to Neo4j fails."""
+    pass
+
+class Neo4jQueryError(Exception):
+    """Raised when query execution fails."""
+    pass
+
+# Retry configuration
+MAX_QUERY_RETRIES = 2
+RETRY_DELAY = 0.5
+
 
 class Neo4jHandler:
-    """Handles Neo4j database connections and query execution."""
+    """Handles Neo4j database connections and query execution using Async Driver."""
     
     def __init__(self):
-        """Initialize Neo4j connection using environment variables."""
+        """Initialize Neo4j connection parameters."""
         self.uri = os.getenv("NEO4J_URI", "neo4j://localhost:7687")
         self.user = os.getenv("NEO4J_USER", "neo4j")
         self.password = os.getenv("NEO4J_PASSWORD")
@@ -28,10 +49,26 @@ class Neo4jHandler:
         if not self.password:
             raise ValueError("NEO4J_PASSWORD environment variable is required")
         
-        self.driver: Optional[Driver] = None
-        self._connect()
+        self.driver: Optional[AsyncDriver] = None
+        
+        # Initialize driver immediately but verification happens in connect/execute
+        self._init_driver()
     
+    def _init_driver(self):
+        """Initialize the driver instance."""
+        try:
+            # Create async driver
+            # Note: This doesn't establish a connection yet, just configures the driver
+            self.driver = AsyncGraphDatabase.driver(self.uri, auth=(self.user, self.password))
+        except Exception as e:
+            console.print(f"[bold bright_red]❌ Failed to create Neo4j driver: {str(e)}[/bold bright_red]")
+            self.driver = None
+
     def connect(self, uri, user, password, database=None):
+        """Synchronous wrapper for connect."""
+        asyncio.run(self.connect_async(uri, user, password, database))
+
+    async def connect_async(self, uri, user, password, database=None):
         """
         Connect to a Neo4j database with specific credentials.
         
@@ -42,7 +79,7 @@ class Neo4jHandler:
             database: Database name (optional)
         """
         # Close existing connection if open
-        self.close()
+        await self.close_async()
         
         self.uri = uri
         self.user = user
@@ -50,7 +87,15 @@ class Neo4jHandler:
         if database:
             self.database = database
             
-        self._connect()
+        # Re-initialize driver
+        self.driver = AsyncGraphDatabase.driver(self.uri, auth=(self.user, self.password))
+        
+        # Verify connectivity
+        if await self.verify_connectivity_async():
+            console.print(f"[bold bright_green]✅ Connected to Neo4j at {self.uri}[/bold bright_green]")
+            console.print(f"[bold bright_blue]📊 Using database: {self.database}[/bold bright_blue]")
+        else:
+            console.print(f"[bold bright_red]❌ Failed to connect to Neo4j at {self.uri}[/bold bright_red]")
 
     def set_database(self, database):
         """
@@ -63,63 +108,42 @@ class Neo4jHandler:
         console.print(f"[bold bright_blue]🔄 Switched to database: {self.database}[/bold bright_blue]")
 
     def test_connection(self) -> bool:
+        """Synchronous wrapper for test_connection."""
+        return asyncio.run(self.verify_connectivity_async())
+
+    async def verify_connectivity_async(self) -> bool:
         """
         Test the current connection parameters.
         
         Returns:
             bool: True if connection is successful, False otherwise
         """
+        if not self.driver:
+            return False
+            
         try:
-            self.driver.verify_connectivity()
+            await self.driver.verify_connectivity()
             return True
-        except Exception:
+        except AuthError as e:
+            console.print(f"[bold red]❌ Authentication failed: Invalid credentials[/bold red]")
+            console.print(f"[red]   {str(e)[:100]}[/red]")
+            return False
+        except ServiceUnavailable as e:
+            console.print(f"[bold red]❌ Neo4j service unavailable[/bold red]")
+            console.print(f"[red]   {str(e)[:100]}[/red]")
+            console.print(f"[yellow]💡 Check that Neo4j is running and accessible at {self.uri}[/yellow]")
+            return False
+        except Exception as e:
+            console.print(f"[dim red]Connection check failed: {str(e)[:100]}[/dim red]")
             return False
 
+    def execute_query(self, query: str, parameters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+        """Synchronous wrapper for execute_query_async."""
+        return asyncio.run(self.execute_query_async(query, parameters))
 
-    def _connect(self):
-        """Establish connection to Neo4j database."""
-        # Prefer bolt:// for direct connections (avoids routing issues)
-        # Try different URI schemes if the default fails
-        uris_to_try = [
-            self.uri,
-            self.uri.replace("neo4j://", "bolt://"),  # Try bolt first if originally neo4j
-            self.uri.replace("127.0.0.1", "localhost"),
-            self.uri.replace("neo4j://127.0.0.1", "bolt://localhost"),
-            "bolt://host.docker.internal:7687", # Add Docker host fallback
-        ]
-        
-        last_error = None
-        for test_uri in uris_to_try:
-            try:
-                # IMPORTANT: Create a new driver for each attempt
-                # Closing the old one if it exists to clean up
-                if self.driver:
-                    self.driver.close()
-                
-                self.driver = GraphDatabase.driver(test_uri, auth=(self.user, self.password))
-                # Verify connection
-                self.driver.verify_connectivity()
-                
-                # If we get here, connection works!
-                console.print(f"[bold bright_green]✅ Connected to Neo4j at {test_uri}[/bold bright_green]")
-                console.print(f"[bold bright_blue]📊 Using database: {self.database}[/bold bright_blue]")
-                self.uri = test_uri  # Update to working URI
-                return
-            except Exception as e:
-                last_error = e
-                # Don't print every failure, just continue
-                continue
-        
-        # If all attempts failed, show detailed error
-        console.print(f"[bold bright_red]❌ Failed to connect to Neo4j[/bold bright_red]")
-        console.print(f"[bright_red]   Tried URIs: {', '.join(uris_to_try)}[/bright_red]")
-        console.print(f"[bright_red]   Error: {str(last_error)}[/bright_red]")
-        console.print(f"[yellow]   Tip: Run 'python3 test_connection.py' to diagnose connection issues[/yellow]")
-        raise ConnectionError(f"Failed to connect to Neo4j: {str(last_error)}")
-    
-    def execute_query(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    async def execute_query_async(self, query: str, parameters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         """
-        Execute a Cypher query and return results.
+        Execute a Cypher query and return results asynchronously with retry for transient errors.
         
         Args:
             query: Cypher query string
@@ -127,48 +151,105 @@ class Neo4jHandler:
             
         Returns:
             List of result records as dictionaries
+            
+        Raises:
+            Neo4jConnectionError: If not connected to database
+            Neo4jQueryError: If query execution fails
         """
         if not self.driver:
-            raise ConnectionError("Not connected to Neo4j database")
+            raise Neo4jConnectionError("Not connected to Neo4j database")
         
-        try:
-            with self.driver.session(database=self.database) as session:
-                result = session.run(query, parameters or {})
-                records = []
-                for record in result:
-                    # Convert Neo4j record to dictionary
-                    record_dict = {}
-                    for key in record.keys():
-                        value = record[key]
-                        # Convert Neo4j types to Python types
-                        if hasattr(value, '__class__'):
-                            if value.__class__.__name__ == 'Node':
-                                record_dict[key] = {
-                                    'type': 'Node',
-                                    'id': value.id,
-                                    'labels': list(value.labels),
-                                    'properties': dict(value)
-                                }
-                            elif value.__class__.__name__ == 'Relationship':
-                                record_dict[key] = {
-                                    'type': 'Relationship',
-                                    'id': value.id,
-                                    'type_name': value.type,
-                                    'start_node': value.start_node.id,
-                                    'end_node': value.end_node.id,
-                                    'properties': dict(value)
-                                }
+        last_error = None
+        
+        for attempt in range(MAX_QUERY_RETRIES):
+            try:
+                async with self.driver.session(database=self.database) as session:
+                    result = await session.run(query, parameters or {})
+                    # Fetch all records
+                    records_list = [record async for record in result]
+                    
+                    records = []
+                    for record in records_list:
+                        # Convert Neo4j record to dictionary
+                        record_dict = {}
+                        for key in record.keys():
+                            value = record[key]
+                            # Convert Neo4j types to Python types
+                            if hasattr(value, '__class__'):
+                                if value.__class__.__name__ == 'Node':
+                                    record_dict[key] = {
+                                        'type': 'Node',
+                                        'id': value.id,
+                                        'labels': list(value.labels),
+                                        'properties': dict(value)
+                                    }
+                                elif value.__class__.__name__ == 'Relationship':
+                                    record_dict[key] = {
+                                        'type': 'Relationship',
+                                        'id': value.id,
+                                        'type_name': value.type,
+                                        'start_node': value.start_node.id,
+                                        'end_node': value.end_node.id,
+                                        'properties': dict(value)
+                                    }
+                                else:
+                                    record_dict[key] = value
                             else:
                                 record_dict[key] = value
-                        else:
-                            record_dict[key] = value
-                    records.append(record_dict)
-                return records
-        except Exception as e:
-            console.print(f"[bold bright_red]❌ Query execution error: {str(e)}[/bold bright_red]")
-            raise
+                        records.append(record_dict)
+                    return records
+                    
+            except AuthError as e:
+                console.print(f"[bold red]❌ Authentication error: {str(e)[:100]}[/bold red]")
+                raise Neo4jQueryError(f"Authentication failed: {str(e)[:100]}") from e
+                
+            except ClientError as e:
+                # Syntax errors, constraint violations, etc. - don't retry
+                error_msg = str(e)
+                console.print(f"[bold red]❌ Query error: {error_msg[:200]}[/bold red]")
+                
+                # Provide helpful hints based on error type
+                if "SyntaxError" in error_msg:
+                    console.print(f"[yellow]💡 Check your Cypher query syntax.[/yellow]")
+                elif "ConstraintViolation" in error_msg:
+                    console.print(f"[yellow]💡 A constraint was violated. Check unique constraints.[/yellow]")
+                elif "not found" in error_msg.lower():
+                    console.print(f"[yellow]💡 A referenced label, property, or relationship type may not exist.[/yellow]")
+                    
+                raise Neo4jQueryError(f"Query failed: {error_msg[:200]}") from e
+                
+            except TransientError as e:
+                # Transient errors can be retried
+                last_error = e
+                if attempt < MAX_QUERY_RETRIES - 1:
+                    console.print(f"[dim yellow]⚠️  Transient error, retrying ({attempt + 1}/{MAX_QUERY_RETRIES})...[/dim yellow]")
+                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                    continue
+                console.print(f"[bold red]❌ Query failed after {MAX_QUERY_RETRIES} retries: {str(e)[:100]}[/bold red]")
+                raise Neo4jQueryError(f"Query failed after retries: {str(e)[:100]}") from e
+                
+            except ServiceUnavailable as e:
+                # Connection lost - could retry
+                last_error = e
+                if attempt < MAX_QUERY_RETRIES - 1:
+                    console.print(f"[dim yellow]⚠️  Connection lost, retrying ({attempt + 1}/{MAX_QUERY_RETRIES})...[/dim yellow]")
+                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                    continue
+                console.print(f"[bold red]❌ Neo4j service unavailable: {str(e)[:100]}[/bold red]")
+                raise Neo4jConnectionError(f"Service unavailable: {str(e)[:100]}") from e
+                
+            except DatabaseError as e:
+                console.print(f"[bold red]❌ Database error: {str(e)[:100]}[/bold red]")
+                raise Neo4jQueryError(f"Database error: {str(e)[:100]}") from e
+                
+            except Exception as e:
+                console.print(f"[bold red]❌ Unexpected query error: {str(e)[:100]}[/bold red]")
+                raise Neo4jQueryError(f"Unexpected error: {str(e)[:100]}") from e
+        
+        # Should not reach here
+        raise Neo4jQueryError(f"Query failed: {last_error}")
     
-    def format_results(self, results: List[Dict[str, Any]]) -> str:
+    def format_results(self, results: list[dict[str, Any]]) -> str:
         """
         Format query results for display.
         
@@ -222,13 +303,23 @@ class Neo4jHandler:
                     row_values.append(str(value))
             table.add_row(*row_values)
         
+        # Display the table
         console.print(table)
-        return f"\n{len(results)} record(s) returned."
+        
+        # We return a simple summary string, or we could return the table object if desired.
+        # But per existing signature, we return string.
+        # We can capture it properly if needed, but the original code was capturing it for testing AND printing.
+        # Let's just print it and return a summary.
+        return f"{len(results)} record(s) returned."
     
     def close(self):
-        """Close the database connection."""
+        """Synchronous wrapper for close_async."""
+        asyncio.run(self.close_async())
+
+    async def close_async(self):
+        """Close the database connection asynchronously."""
         if self.driver:
-            self.driver.close()
+            await self.driver.close()
             console.print("[bold bright_blue]🔌 Disconnected from Neo4j[/bold bright_blue]")
     
     def __enter__(self):
@@ -239,3 +330,10 @@ class Neo4jHandler:
         """Context manager exit."""
         self.close()
 
+    async def __aenter__(self):
+        """Async Context manager entry."""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async Context manager exit."""
+        await self.close_async()

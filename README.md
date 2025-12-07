@@ -1,127 +1,112 @@
 # Neo4j GraphBot
 
-A production-ready Python CLI application that allows you to interact with **any** Neo4j graph database using natural language. Whether you're working with finance, healthcare, social networks, or any other domain, GraphBot intelligently adapts to your schema. Powered by Google's Gemini API for intelligent query generation.
+<div align="center">
 
-## 🚀 Quick Start
+![Neo4j GraphBot](https://via.placeholder.com/800x200.png?text=Neo4j+GraphBot+Banner)
 
-1. **Edit configuration:**
-   ```bash
-   cp config/config.env.template config/config.env
-   nano config/config.env
-   ```
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 
-2. **Run with Docker:**
-   ```bash
-   docker-compose up
-   ```
+**Chat with your Graph. Zero Cypher required.**
 
-That's it! See [docs/QUICKSTART.md](docs/QUICKSTART.md) for more details.
+</div>
 
-## 🔌 Connecting to Your Database
+---
 
-GraphBot supports connecting to any Neo4j instance (Local, AuraDB, or Enterprise).
+## 🚀 Elevator Pitch
 
-### Interactive Mode
-You can switch databases directly from the CLI:
-1. Start GraphBot: `graphbot`
-2. Type `connect`
-3. Enter your connection details:
-   - URI (e.g., `bolt://localhost:7687` or `neo4j+s://your-instance.databases.neo4j.io`)
-   - Username
-   - Password
-   - Database (optional)
+**Neo4j GraphBot** transforms the way you interact with graph databases by turning natural language questions into optimized Cypher queries. It acts as an intelligent bridge, allowing developers and analysts to explore complex datasets instantly without writing a single line of query code.
 
-### Environment Variables
-You can also set default connection details in `config/config.env`:
+## ✨ Features
+
+| 🧠 Intelligent Querying | 🔍 Deep Inspection | 🛡️ Safe & Secure |
+|-------------------------|--------------------|-------------------|
+| Translates natural language (e.g., "Find friends of friends") into precise Cypher. | Automatic schema analysis maps your database structure in the background. | Validates queries and requires confirmation for write/delete operations. |
+| **Rich CLI Interface** | **Multi-Model Support** | **Explainability** |
+| Beautiful, interactive terminal UI with syntax highlighting and tables. | Switch between Gemini, OpenAI, or other LLM providers easily. | Explains the *why* behind query results in plain English. |
+
+## 🏁 Quick Start
+
+Get up and running in seconds.
+
 ```bash
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-NEO4J_DATABASE=your_database  # Optional, defaults to default DB
+# 1. Clone and Install
+git clone https://github.com/yourusername/neo4j-graphbot.git
+cd neo4j-graphbot
+pip install -e .
+
+# 2. Configure (Edit .env with your keys)
+cp config/config.env.template config/config.env
+
+# 3. Launch
+graphbot
 ```
 
-## 📁 Project Structure
+## 🗺️ Project Structure
 
-```
-neo4jsinteract/
-├── src/graphbot/          # Main application package
-│   ├── core/              # Core components (schema context)
-│   ├── handlers/          # Database handlers (Neo4j)
-│   ├── services/          # External services (Gemini API)
-│   ├── utils/             # Utilities (query builder)
-│   ├── cli.py             # CLI entry point
-│   └── graphbot.py        # Main application class
-├── config/                # Configuration files
-│   ├── config.env.template
-│   └── config.env         # User config (gitignored)
-├── scripts/               # Utility scripts
-├── docs/                  # Documentation
-├── Dockerfile             # Docker image definition
-├── docker-compose.yml     # Docker Compose configuration
-├── pyproject.toml         # Modern Python packaging
-├── setup.py               # Setuptools configuration
-└── Makefile              # Development commands
+```text
+neo4j-graphbot/
+├── config/                 # Configuration files (.env, providers.yaml)
+├── docs/                   # Documentation
+│   ├── architecture.md     # System design & diagrams
+│   ├── setup-guide.md      # Detailed installation steps
+│   └── api-reference.md    # Code documentation
+├── src/
+│   └── graphbot/
+│       ├── core/           # Core logic (Schema Context)
+│       ├── handlers/       # Neo4j Database handlers
+│       ├── services/       # LLM & Agent Services
+│       └── utils/          # Helpers & Query Builders
+├── tests/                  # Integration & Unit tests
+├── Dockerfile              # Container definition
+└── README.md               # You are here
 ```
 
 ## 📚 Documentation
 
-- **[QUICKSTART.md](docs/QUICKSTART.md)** - Get started in 3 steps
-- **[README_DOCKER.md](docs/README_DOCKER.md)** - Complete Docker guide
-- **[README.md](docs/README.md)** - Full documentation
+For detailed instructions, please refer to the documentation:
 
-## 🛠️ Installation
+*   📖 [**Architecture Overview**](docs/architecture.md) - How it works under the hood.
+*   🛠️ [**Setup Guide**](docs/setup-guide.md) - Deep dive into configuration and environment.
+*   💻 [**API Reference**](docs/api-reference.md) - For developers extending the bot.
+*   🚀 [**Deployment**](docs/deployment.md) - Building and running in production.
 
-### Docker (Recommended)
+## 🤝 Contributing
 
-```bash
-docker-compose up
-```
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-### Local Installation
+1.  Fork the Project
+2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the Branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
 
-```bash
-pip install -e .
-graphbot
-```
+## 👥 Authors
 
-## ⚙️ Configuration
+<table>
+  <tr>
+    <td align="center"><strong>📚 Academic Context</strong></td>
+  </tr>
+  <tr>
+    <td>
+      <strong>Course:</strong> CS 673 — Scalable Databases (Fall 2025)<br>
+      <strong>Institution:</strong> Pace University
+    </td>
+  </tr>
+</table>
 
-Edit `config/config.env`:
+### Development Team
 
-```bash
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-NEO4J_DATABASE=your_database
-GEMINI_API_KEY=your_api_key
-```
+| Name | Role |
+|------|------|
+| **Rafiul Haider** (UID: U0200293) | Lead Developer |
+| **Ali Khan** | Developer |
+| **Yogesh** | Developer |
 
-## 🧪 Development
-
-```bash
-# Install with dev dependencies
-make dev-install
-
-# Run tests
-make test
-
-# Format code
-make format
-
-# Lint code
-make lint
-```
-
-## 📦 Features
-
-- 🤖 Natural language to Cypher query conversion
-- 🔍 Full CRUD operations
-- 🎨 Beautiful CLI interface
-- ✅ Query validation and safety checks
-- 📊 Formatted result display
-- 🐳 Docker support
-- 📦 Modular, production-ready codebase
+> *This application was developed as a Final Project submission to demonstrate the modeling, cleansing, and querying capabilities of a Graph Database architecture.*
 
 ## 📄 License
 
-MIT License
+Distributed under the MIT License. See `LICENSE` for more information.

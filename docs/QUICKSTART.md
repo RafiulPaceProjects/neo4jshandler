@@ -1,72 +1,89 @@
 # Quick Start Guide
 
-## 🚀 Get Started in 3 Steps
+This guide will get you up and running with Neo4j GraphBot in minutes.
 
-### Step 1: Edit Configuration
+## Prerequisites
 
-Edit the `config.env` file with your credentials:
+1. **Neo4j Database**: You need a running Neo4j instance.
+   - [Neo4j Desktop](https://neo4j.com/download/) (Local)
+   - [Neo4j Aura](https://neo4j.com/cloud/aura/) (Cloud)
+   - Docker container (`docker run -p 7474:7474 -p 7687:7687 neo4j`)
 
-```bash
-# Open the config file
-nano config.env
-```
+2. **Gemini API Key**:
+   - Get a key from [Google AI Studio](https://makersuite.google.com/app/apikey).
 
-Fill in:
-- `NEO4J_URI` - Your Neo4j connection (e.g., `bolt://localhost:7687`)
-- `NEO4J_USER` - Your Neo4j username (usually `neo4j`)
-- `NEO4J_PASSWORD` - Your Neo4j password ⚠️ **REQUIRED**
-- `NEO4J_DATABASE` - Your database name (leave empty for default)
-- `GEMINI_API_KEY` - Your Gemini API key ⚠️ **REQUIRED**
+## Installation
 
-### Step 2: Run with Docker
+### Method 1: Docker (Recommended)
 
-```bash
-docker-compose up
-```
+This method ensures you have all dependencies isolated.
 
-That's it! The bot will start and connect to your Neo4j database.
+1. **Clone the repository** (if you haven't already):
+   ```bash
+   git clone <repo-url>
+   cd neo4jsinteract
+   ```
 
-### Step 3: Start Querying
+2. **Setup Configuration**:
+   ```bash
+   cp config/config.env.template config/config.env
+   ```
+   
+   Edit `config/config.env`:
+   - Set `NEO4J_URI` (e.g., `neo4j://host.docker.internal:7687` for local DB accessed from Docker)
+   - Set `NEO4J_PASSWORD`
+   - Set `GEMINI_API_KEY`
 
-Once started, you can ask questions like:
-- "Show me all nodes"
-- "Count claims by type"
-- "Find all fraudulent providers"
+3. **Run**:
+   ```bash
+   docker-compose up
+   ```
+   The container will start and you can interact with the bot in the terminal.
 
-## 📝 Example config.env
+### Method 2: Local Python Environment
 
-```bash
-# Neo4j Configuration
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=mypassword123
-NEO4J_DATABASE=healthproject
+Use this if you want to develop or run directly on your host machine.
 
-# Gemini API
-GEMINI_API_KEY=AIzaSyDmDwfCwQnbwKqB96wHQU4qLc2tIEoZMYU
-```
+1. **Create Virtual Environment**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   ```
 
-## 🔧 Connection Examples
+2. **Install Package**:
+   ```bash
+   pip install -e .
+   ```
 
-### Local Neo4j
-```bash
-NEO4J_URI=bolt://localhost:7687
-```
+3. **Configure**:
+   ```bash
+   cp config/config.env.template config/config.env
+   # Edit config.env with your credentials
+   ```
 
-### Neo4j on Docker Host
-```bash
-NEO4J_URI=bolt://host.docker.internal:7687
-```
+4. **Run**:
+   ```bash
+   graphbot
+   ```
 
-### Remote Neo4j Server
-```bash
-NEO4J_URI=bolt://your-server.com:7687
-```
+## Configuration Reference
 
-## ❓ Need Help?
+The `config.env` file supports the following variables:
 
-- See [README.md](README.md) for full documentation
-- See [README_DOCKER.md](README_DOCKER.md) for Docker details
-- Check that your Neo4j is running and accessible
-- Verify your API key at https://makersuite.google.com/app/apikey
+| Variable | Required | Default | Description |
+|----------|:--------:|---------|-------------|
+| `NEO4J_URI` | No | `neo4j://localhost:7687` | Connection URI |
+| `NEO4J_USER` | No | `neo4j` | Database username |
+| `NEO4J_PASSWORD` | **Yes** | - | Database password |
+| `NEO4J_DATABASE` | No | `healthproject`* | Target database name |
+| `GEMINI_API_KEY` | **Yes** | - | Google AI API Key |
+| `MAIN_MODEL` | No | `gemini-3-pro-preview` | Model for query generation |
+| `WORKER_MODEL` | No | `gemini-2.0-flash` | Model for background tasks |
 
+*> Note: The code currently defaults to `healthproject` if not specified. We recommend explicitly setting this to `neo4j` or your specific database name.*
+
+## Troubleshooting
+
+- **Connection Refused**: If running in Docker and connecting to localhost Neo4j, use `host.docker.internal` instead of `localhost`.
+- **Authentication Failed**: Check your Neo4j password.
+- **API Errors**: Verify your Gemini API key has active quota.
