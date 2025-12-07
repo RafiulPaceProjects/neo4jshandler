@@ -29,6 +29,26 @@ class InsightAgent:
         Returns:
             Dictionary containing schema info, summary, and suggested questions
         """
+        # Check for cache first
+        import json
+        import os
+        import hashlib
+        
+        # Create a unique cache key based on DB connection string (simple version)
+        # In a real scenario, might want to check DB hash or last updated time
+        cache_key = hashlib.md5(f"{neo4j_handler.uri}-{neo4j_handler.database}".encode()).hexdigest()
+        cache_file = f".graphbot_cache_{cache_key}.json"
+        
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                    # Optional: Add timestamp check to expire cache after X hours
+                    console.print("[dim]Loaded schema insights from cache.[/dim]")
+                    return cached_data
+            except Exception:
+                pass # Fallback to fresh analysis
+
         try:
             with Progress(
                 SpinnerColumn(),
@@ -51,11 +71,20 @@ class InsightAgent:
                 questions = self._suggest_questions(raw_schema, summary)
                 progress.advance(task)
                 
-            return {
+            result = {
                 "raw_schema": raw_schema,
                 "summary": summary,
                 "suggested_questions": questions
             }
+            
+            # Save to cache
+            try:
+                with open(cache_file, 'w') as f:
+                    json.dump(result, f)
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not save cache: {e}[/yellow]")
+                
+            return result
             
         except Exception as e:
             console.print(f"[bold red]❌ Insight generation failed: {str(e)}[/bold red]")
@@ -66,45 +95,63 @@ class InsightAgent:
             }
 
     def _extract_raw_schema(self, neo4j: Neo4jHandler) -> str:
-        """Extract detailed schema stats from Neo4j."""
-        # Reuse the logic similar to SchemaContext but optimized for analysis
+        """Extract detailed schema stats from Neo4j using parallel execution."""
         schema_parts = []
+        import concurrent.futures
         
         try:
             with neo4j.driver.session(database=neo4j.database) as session:
-                # Node Labels & Counts
+                # 1. Get Node Labels (Fast)
                 result = session.run("CALL db.labels() YIELD label RETURN label")
                 labels = [r["label"] for r in result]
                 
-                schema_parts.append("## Node Labels")
-                for label in labels:
-                    # Use escaped label names to handle special chars
-                    try:
-                        count_res = session.run(f"MATCH (n:`{label}`) RETURN count(n) as c")
-                        count = count_res.single()["c"]
-                    except Exception:
-                        count = 0
-                        
-                    if count > 0:
-                        props_res = session.run(f"MATCH (n:`{label}`) RETURN keys(n) as k LIMIT 1")
-                        props_rec = props_res.single()
-                        prop_list = props_rec["k"] if props_rec else []
-                        schema_parts.append(f"- **{label}**: {count:,} nodes. Properties: {', '.join(prop_list[:5])}")
-                    else:
-                        schema_parts.append(f"- **{label}**: 0 nodes.")
-
-                # Relationships
-                schema_parts.append("\n## Relationships")
+                # 2. Get Relationships (Fast)
                 result = session.run("CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType")
                 rels = [r["relationshipType"] for r in result]
-                
-                for r_type in rels:
-                    try:
-                        count_res = session.run(f"MATCH ()-[r:`{r_type}`]->() RETURN count(r) as c")
+
+            # Helper function for parallel execution
+            def process_label(label):
+                try:
+                    # Create a new session for each thread to be thread-safe
+                    with neo4j.driver.session(database=neo4j.database) as thread_session:
+                        count_res = thread_session.run(f"MATCH (n:`{label}`) RETURN count(n) as c")
                         count = count_res.single()["c"]
-                    except Exception:
-                        count = 0
-                    schema_parts.append(f"- **{r_type}**: {count:,} connections.")
+                        
+                        if count > 0:
+                            props_res = thread_session.run(f"MATCH (n:`{label}`) RETURN keys(n) as k LIMIT 1")
+                            props_rec = props_res.single()
+                            prop_list = props_rec["k"] if props_rec else []
+                            return f"- **{label}**: {count:,} nodes. Properties: {', '.join(prop_list[:5])}"
+                        else:
+                            return f"- **{label}**: 0 nodes."
+                except Exception:
+                    return f"- **{label}**: (Error fetching stats)"
+
+            # Helper function for parallel execution (Relationships)
+            def process_rel(r_type):
+                try:
+                    with neo4j.driver.session(database=neo4j.database) as thread_session:
+                        count_res = thread_session.run(f"MATCH ()-[r:`{r_type}`]->() RETURN count(r) as c")
+                        count = count_res.single()["c"]
+                        return f"- **{r_type}**: {count:,} connections."
+                except Exception:
+                    return f"- **{r_type}**: (Error fetching stats)"
+
+            # 3. Parallel Execution for Labels
+            schema_parts.append("## Node Labels")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                # Submit all label tasks
+                future_to_label = {executor.submit(process_label, label): label for label in labels}
+                for future in concurrent.futures.as_completed(future_to_label):
+                    schema_parts.append(future.result())
+
+            # 4. Parallel Execution for Relationships
+            schema_parts.append("\n## Relationships")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                # Submit all rel tasks
+                future_to_rel = {executor.submit(process_rel, r_type): r_type for r_type in rels}
+                for future in concurrent.futures.as_completed(future_to_rel):
+                    schema_parts.append(future.result())
                     
         except Exception as e:
             console.print(f"[yellow]Warning: Schema extraction error: {str(e)}[/yellow]")

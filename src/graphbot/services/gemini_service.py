@@ -1,7 +1,9 @@
 """Gemini API service for natural language to Cypher query conversion."""
 import os
 import time
-from typing import Optional
+import asyncio
+import hashlib
+from typing import Optional, Dict
 import google.generativeai as genai
 from dotenv import load_dotenv
 from rich.console import Console
@@ -51,6 +53,9 @@ class GeminiService:
         self.worker_model_name = None
         
         self.available_models = {}  # Dictionary mapping short names to full model paths
+        
+        self._query_cache: Dict[str, str] = {}
+        self._cache_size = 100
         
         self._initialize_models()
 
@@ -241,8 +246,12 @@ class GeminiService:
         raise ValueError(f"Could not extract text from Gemini response. Response has: {', '.join(error_info) if error_info else 'unknown structure'}")
     
     def generate_cypher_query(self, user_input: str, context: Optional[str] = None) -> str:
+        """Synchronous wrapper for backward compatibility."""
+        return asyncio.run(self.generate_cypher_query_async(user_input, context))
+
+    async def generate_cypher_query_async(self, user_input: str, context: Optional[str] = None) -> str:
         """
-        Convert natural language input to Cypher query.
+        Convert natural language input to Cypher query asynchronously.
         
         Args:
             user_input: Natural language query from user
@@ -251,6 +260,12 @@ class GeminiService:
         Returns:
             Cypher query string
         """
+        # 1. Check Cache
+        cache_key = hashlib.md5(f"{user_input}:{context}".encode()).hexdigest()
+        if cache_key in self._query_cache:
+            console.print("[dim]⚡ Using cached query...[/dim]")
+            return self._query_cache[cache_key]
+
         # Build context-aware prompt
         base_prompt = """You are an expert Neo4j Cypher Query Developer.
 Your task is to accurately translate the user's natural language request into an executable Cypher query.
@@ -280,7 +295,8 @@ Your task is to accurately translate the user's natural language request into an
         
         for attempt in range(max_retries):
             try:
-                response = self.main_model.generate_content(prompt)
+                # Use async generation
+                response = await self.main_model.generate_content_async(prompt)
                 
                 # Debug: Print response structure if extraction fails
                 try:
@@ -302,6 +318,13 @@ Your task is to accurately translate the user's natural language request into an
                     query = query.replace("```cypher", "").replace("```", "").strip()
                 
                 console.print(f"[bold bright_blue]🔍 Generated query:[/bold bright_blue] [dim]{query}[/dim]")
+                
+                # Update Cache
+                if len(self._query_cache) >= self._cache_size:
+                    # Remove oldest item (Python dicts are ordered by insertion)
+                    self._query_cache.pop(next(iter(self._query_cache)))
+                self._query_cache[cache_key] = query
+                
                 return query
                 
             except Exception as e:
@@ -355,7 +378,7 @@ Your task is to accurately translate the user's natural language request into an
                         # If no fallback model, wait and retry
                         wait_time = retry_time if retry_time else retry_delay * (attempt + 1)
                         console.print(f"[bold bright_yellow]⏳ Quota exceeded. Waiting {wait_time:.1f}s before retry...[/bold bright_yellow]")
-                        time.sleep(wait_time)
+                        await asyncio.sleep(wait_time)
                         continue
                     else:
                         # Last attempt failed
@@ -372,7 +395,7 @@ Your task is to accurately translate the user's natural language request into an
                     # Retry for other errors with exponential backoff
                     wait_time = retry_delay * (2 ** attempt)
                     console.print(f"[bold bright_yellow]⚠️  Error occurred. Retrying in {wait_time}s...[/bold bright_yellow]")
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
         
         raise Exception("Failed to generate query after multiple attempts")
     
@@ -396,8 +419,12 @@ Your task is to accurately translate the user's natural language request into an
         return False
     
     def explain_result(self, query: str, results: list, user_input: str) -> str:
+        """Synchronous wrapper for backward compatibility."""
+        return asyncio.run(self.explain_result_async(query, results, user_input))
+
+    async def explain_result_async(self, query: str, results: list, user_input: str) -> str:
         """
-        Generate a natural language explanation of query results.
+        Generate a natural language explanation of query results asynchronously.
         
         Args:
             query: The Cypher query that was executed
@@ -416,9 +443,8 @@ Number of results: {len(results)}
 Provide a brief, user-friendly explanation of what was found or what operation was performed."""
         
         try:
-            response = self.main_model.generate_content(prompt)
+            response = await self.main_model.generate_content_async(prompt)
             return self._extract_text(response).strip()
         except Exception as e:
             console.print(f"[bold bright_red]⚠️  Could not generate explanation: {str(e)}[/bold bright_red]")
             return "Query executed successfully."
-
